@@ -106,6 +106,9 @@ pub use cron_runs::CronRunsTool;
 pub use cron_update::CronUpdateTool;
 pub use data_management::DataManagementTool;
 pub use delegate::DelegateTool;
+// Re-exported for downstream consumers of background delegation results.
+#[allow(unused_imports)]
+pub use delegate::{BackgroundDelegateResult, BackgroundTaskStatus};
 pub use file_edit::FileEditTool;
 pub use file_read::FileReadTool;
 pub use file_write::FileWriteTool;
