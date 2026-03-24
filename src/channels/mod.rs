@@ -127,6 +127,7 @@ use std::time::{Duration, Instant, SystemTime};
 use tokio_util::sync::CancellationToken;
 
 /// Process-global registry of live (connected) channel instances.
+///
 /// Populated by `start_channels()` so that subsystems like cron can
 /// reuse the daemon's connected channels instead of creating new ones.
 static LIVE_CHANNELS: OnceLock<Mutex<HashMap<String, Arc<dyn Channel>>>> = OnceLock::new();
