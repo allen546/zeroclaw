@@ -4480,8 +4480,38 @@ fn build_channel_by_id(config: &Config, channel_id: &str) -> Result<Arc<dyn Chan
                 qq.allowed_users.clone(),
             )))
         }
+        "lark" => {
+            #[cfg(feature = "channel-lark")]
+            {
+                let lk = config
+                    .channels_config
+                    .lark
+                    .as_ref()
+                    .context("Lark channel is not configured")?;
+                Ok(Arc::new(LarkChannel::from_lark_config(lk)))
+            }
+            #[cfg(not(feature = "channel-lark"))]
+            {
+                anyhow::bail!("Lark channel requires the `channel-lark` feature");
+            }
+        }
+        "feishu" => {
+            #[cfg(feature = "channel-lark")]
+            {
+                let fs = config
+                    .channels_config
+                    .feishu
+                    .as_ref()
+                    .context("Feishu channel is not configured")?;
+                Ok(Arc::new(LarkChannel::from_feishu_config(fs)))
+            }
+            #[cfg(not(feature = "channel-lark"))]
+            {
+                anyhow::bail!("Feishu channel requires the `channel-lark` feature");
+            }
+        }
         other => anyhow::bail!(
-            "Unknown channel '{other}'. Supported: telegram, discord, slack, mattermost, signal, matrix, whatsapp, qq"
+            "Unknown channel '{other}'. Supported: telegram, discord, slack, mattermost, signal, matrix, whatsapp, qq, lark, feishu"
         ),
     }
 }
