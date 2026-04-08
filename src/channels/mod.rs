@@ -1186,6 +1186,8 @@ fn proactive_trim_turns(turns: &mut Vec<ChatMessage>, budget: usize) -> usize {
 
     if drop_count > 0 {
         turns.drain(..drop_count);
+        // Remove orphaned tool messages after trimming (#5475).
+        sanitize_orphaned_tool_messages(turns);
     }
     drop_count
 }
@@ -1280,7 +1282,8 @@ fn strip_old_tool_context(ctx: &ChannelRuntimeContext, sender_key: &str, keep_tu
 
     // Remove tool and intermediate assistant messages before the boundary.
     // An "intermediate assistant" is one whose content looks like a tool
-    // call (contains `<tool_call>` or starts with `{\"tool_call`).
+    // call (contains `<tool_call>` or starts with `{\"tool_call`) or
+    // native JSON tool_calls.
     let mut i = 0;
     while i < protect_from && i < turns.len() {
         let dominated = turns[i].role == "tool"
@@ -1295,6 +1298,12 @@ fn strip_old_tool_context(ctx: &ChannelRuntimeContext, sender_key: &str, keep_tu
     }
 }
 
+    // After stripping, ensure no orphaned tool messages remain.
+    // A tool-role message without a preceding assistant with tool_calls
+    // violates the OpenAI API contract and causes provider errors (#5475).
+    sanitize_orphaned_tool_messages(turns);
+}
+
 /// Heuristic: does this assistant message content represent a tool call
 /// rather than a final text response?
 fn is_tool_call_content(content: &str) -> bool {
@@ -1302,6 +1311,42 @@ fn is_tool_call_content(content: &str) -> bool {
     trimmed.contains("<tool_call>")
         || trimmed.starts_with("{\"tool_call\"")
         || trimmed.starts_with("{\"name\"")
+        || is_native_json_tool_call(trimmed)
+}
+
+/// Check if the content is a native JSON tool-call message (OpenAI format).
+fn is_native_json_tool_call(content: &str) -> bool {
+    if !content.starts_with('{') {
+        return false;
+    }
+    if let Ok(val) = serde_json::from_str::<serde_json::Value>(content) {
+        if let Some(arr) = val.get("tool_calls").and_then(|v| v.as_array()) {
+            return !arr.is_empty();
+        }
+    }
+    false
+}
+
+/// Remove orphaned tool-role messages that appear without a preceding
+/// assistant message containing tool_calls (#5475).
+fn sanitize_orphaned_tool_messages(turns: &mut Vec<ChatMessage>) {
+    let mut i = 0;
+    while i < turns.len() {
+        if turns[i].role == "tool" {
+            let has_preceding_tool_call = i > 0
+                && turns[i - 1].role == "assistant"
+                && is_tool_call_content(&turns[i - 1].content);
+            let continues_tool_batch = i > 0 && turns[i - 1].role == "tool";
+
+            if !has_preceding_tool_call && !continues_tool_batch {
+                turns.remove(i);
+            } else {
+                i += 1;
+            }
+        } else {
+            i += 1;
+        }
+    }
 }
 
 fn rollback_orphan_user_turn(
@@ -2580,21 +2625,8 @@ async fn process_channel_message(
             return;
         }
     };
-    if ctx.auto_save_memory
-        && msg.content.chars().count() >= AUTOSAVE_MIN_MESSAGE_CHARS
-        && !memory::should_skip_autosave_content(&msg.content)
-    {
-        let autosave_key = conversation_memory_key(&msg);
-        let _ = ctx
-            .memory
-            .store(
-                &autosave_key,
-                &msg.content,
-                crate::memory::MemoryCategory::Conversation,
-                Some(&history_key),
-            )
-            .await;
-    }
+    // NOTE: Raw user-message auto-save removed (#5470).
+    // Post-LLM consolidation already creates structured memories.
 
     println!("  ⏳ Processing message...");
     let started_at = Instant::now();
@@ -5652,6 +5684,8 @@ pub async fn start_channels(config: Config) -> Result<()> {
             if msgs.len() > MAX_CHANNEL_HISTORY {
                 msgs.drain(..msgs.len() - MAX_CHANNEL_HISTORY);
             }
+            // Remove orphaned tool messages after trimming (#5475).
+            sanitize_orphaned_tool_messages(&mut msgs);
             // Close orphaned user turns from crashed sessions.
             if msgs.last().is_some_and(|m| m.role == "user") {
                 let closure =

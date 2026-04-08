@@ -227,8 +227,8 @@ pub async fn run_wizard(force: bool) -> Result<Config> {
         if config.memory.auto_save { "on" } else { "off" }
     );
 
-    config.save().await?;
     persist_workspace_selection(&config.config_path).await?;
+    config.save().await?;
 
     // ── Final summary ────────────────────────────────────────────
     print_summary(&config);
@@ -277,8 +277,8 @@ pub async fn run_channels_repair_wizard() -> Result<Config> {
 
     print_step(1, 1, "Channels (How You Talk to ZeroClaw)");
     config.channels_config = setup_channels(Some(config.channels_config.clone()))?;
-    config.save().await?;
     persist_workspace_selection(&config.config_path).await?;
+    config.save().await?;
 
     println!();
     println!(
@@ -342,8 +342,8 @@ async fn run_provider_update_wizard(workspace_dir: &Path, config_path: &Path) ->
     let (provider, api_key, model, provider_api_url) = setup_provider(workspace_dir).await?;
     apply_provider_update(&mut config, provider, api_key, model, provider_api_url);
 
-    config.save().await?;
     persist_workspace_selection(&config.config_path).await?;
+    config.save().await?;
 
     println!(
         "  {} Provider settings updated at {}",
@@ -673,8 +673,8 @@ async fn run_quick_setup_with_home(
         shell_tool: crate::config::ShellToolConfig::default(),
     };
 
-    config.save().await?;
     persist_workspace_selection(&config.config_path).await?;
+    config.save().await?;
 
     // Scaffold minimal workspace files
     let default_ctx = ProjectContext {
