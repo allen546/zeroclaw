@@ -5298,6 +5298,74 @@ pub struct AutonomyConfig {
     /// Timeout in seconds for shell tool subprocesses. Default: 60.
     #[serde(default = "default_shell_timeout_secs")]
     pub shell_timeout_secs: u64,
+
+    /// Autonomy preset that was used to generate this config.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preset: Option<AutonomyPreset>,
+}
+
+/// Autonomy preset — bundles autonomy, cost, and agent config values.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum AutonomyPreset {
+    Default,
+    Yolo,
+}
+
+fn yolo_allowed_commands() -> Vec<String> {
+    [
+        "git", "npm", "npx", "yarn", "pnpm", "cargo", "rustup", "make", "cmake",
+        "ls", "cat", "grep", "find", "echo", "pwd", "wc", "head", "tail", "date",
+        "python", "python3", "pip", "pip3", "node", "deno", "bun",
+        "curl", "wget", "jq", "yq", "sed", "awk", "sort", "uniq", "cut", "tr",
+        "tar", "zip", "unzip", "gzip", "gunzip",
+        "docker", "docker-compose", "podman",
+        "kubectl", "helm", "terraform", "ansible",
+        "ssh", "scp", "rsync", "gh", "brew",
+        "cp", "mv", "rm", "mkdir", "rmdir", "touch", "chmod", "chown",
+    ]
+    .iter()
+    .map(|s| (*s).into())
+    .collect()
+}
+
+impl AutonomyPreset {
+    pub fn autonomy_config(self) -> AutonomyConfig {
+        match self {
+            Self::Default => AutonomyConfig::default(),
+            Self::Yolo => AutonomyConfig {
+                level: AutonomyLevel::Full,
+                workspace_only: false,
+                allowed_commands: yolo_allowed_commands(),
+                forbidden_paths: vec![],
+                max_actions_per_hour: 100,
+                max_cost_per_day_cents: 2500,
+                require_approval_for_medium_risk: false,
+                block_high_risk_commands: false,
+                shell_timeout_secs: 300,
+                preset: Some(Self::Yolo),
+                ..AutonomyConfig::default()
+            },
+        }
+    }
+
+    pub fn cost_config(self) -> CostConfig {
+        match self {
+            Self::Default => CostConfig::default(),
+            Self::Yolo => CostConfig {
+                daily_limit_usd: 25.0,
+                monthly_limit_usd: 250.0,
+                ..CostConfig::default()
+            },
+        }
+    }
+
+    pub fn agent_max_tool_iterations(self) -> usize {
+        match self {
+            Self::Default => default_agent_max_tool_iterations(),
+            Self::Yolo => 30,
+        }
+    }
 }
 
 fn default_shell_timeout_secs() -> u64 {
@@ -5400,6 +5468,7 @@ impl Default for AutonomyConfig {
             allowed_roots: Vec::new(),
             non_cli_excluded_tools: Vec::new(),
             shell_timeout_secs: default_shell_timeout_secs(),
+            preset: None,
         }
     }
 }
@@ -11495,6 +11564,7 @@ auto_save = true
                 allowed_roots: vec![],
                 non_cli_excluded_tools: vec![],
                 shell_timeout_secs: default_shell_timeout_secs(),
+                preset: None,
             },
             trust: crate::trust::TrustConfig::default(),
             backup: BackupConfig::default(),

@@ -20,6 +20,8 @@ use crate::config::schema::{
     MatrixConfig, MattermostConfig, NextcloudTalkConfig, SignalConfig, SlackConfig, StreamMode,
     TelegramConfig, WhatsAppChatPolicy, WhatsAppConfig, WhatsAppWebMode,
 };
+#[cfg(feature = "channel-nostr")]
+use crate::config::schema::NostrConfig;
 
 use super::theme;
 use super::widgets::{
@@ -210,27 +212,27 @@ const CHANNELS: &[(&str, &str, bool)] = &[
     ("WhatsApp", "QR link", true),
     ("Discord", "Bot API", false),
     ("IRC", "Server + Nick", false),
-    ("Google Chat", "Chat API", true),
     ("Slack", "Socket Mode", false),
     ("Signal", "signal-cli", false),
     ("iMessage", "imsg", false),
-    ("LINE", "Messaging API", false),
     ("Mattermost", "plugin", false),
     ("Nextcloud Talk", "self-hosted", false),
     ("Feishu/Lark", "\u{98de}\u{4e66}", false),
-    ("BlueBubbles", "macOS app", false),
-    ("Zalo", "Bot API", false),
-    ("Synology Chat", "Webhook", false),
     ("Nostr", "NIP-04 DMs", true),
-    ("Microsoft Teams", "Teams SDK", true),
     ("Matrix", "plugin", true),
-    ("Zalo Personal", "Personal Account", true),
-    ("Tlon", "Urbit", true),
-    ("Twitch", "Chat", true),
     ("Skip for now", "configure later", false),
 ];
 
-const SETUP_MODES: &[&str] = &["QuickStart", "Full Setup (9 steps)", "Skip for now"];
+const SETUP_MODES: &[(&str, &str)] = &[
+    (
+        "\u{1f512} Secure (recommended)",
+        "Supervised sandbox, approval gates, workspace-scoped",
+    ),
+    (
+        "\u{26a1} YOLO mode",
+        "Full autonomy \u{2014} no sandbox, no approvals, all commands",
+    ),
+];
 
 const MODELS: &[&str] = &[
     "Auto (recommended)",
@@ -371,6 +373,8 @@ struct App {
 
     // Setup mode
     setup_mode_idx: usize,
+    // Autonomy preset (0 = Supervised, 1 = YOLO)
+    autonomy_mode_idx: usize,
 
     // Config handling
     config_handling_idx: usize,
@@ -458,6 +462,7 @@ impl App {
             should_quit: false,
             security_accepted: false,
             setup_mode_idx: 0,
+            autonomy_mode_idx: 0,
             config_handling_idx: 0,
             provider_tier_idx: 0,
             provider_idx: 0,
@@ -1101,7 +1106,16 @@ fn apply_tui_selections_to_config(app: &App, config: &mut Config) {
                 });
             }
         }
-        // Channels without config structs yet — skip silently
+        #[cfg(feature = "channel-nostr")]
+        "Nostr" => {
+            if config.channels_config.nostr.is_none() {
+                config.channels_config.nostr = Some(NostrConfig {
+                    private_key: String::from("YOUR_NOSTR_PRIVATE_KEY"),
+                    relays: crate::config::schema::default_nostr_relays(),
+                    allowed_pubkeys: vec![],
+                });
+            }
+        }
         _ => {}
     }
 
@@ -1218,6 +1232,17 @@ fn apply_tui_selections_to_config(app: &App, config: &mut Config) {
         config.memory = crate::onboard::memory_config_defaults_for_backend(backend_key);
         config.memory.auto_save = app.memory_auto_save;
     }
+
+    // ── Autonomy preset ────────────────────────────────────────────
+    let preset = if app.autonomy_mode_idx == 1 {
+        crate::config::schema::AutonomyPreset::Yolo
+    } else {
+        crate::config::schema::AutonomyPreset::Default
+    };
+    config.autonomy = preset.autonomy_config();
+    config.autonomy.preset = Some(preset);
+    config.cost = preset.cost_config();
+    config.agent.max_tool_iterations = preset.agent_max_tool_iterations();
 }
 
 /// If a ZeroClaw Docker container is running, reconfigure it via `docker exec`.
@@ -1370,7 +1395,11 @@ fn handle_input(app: &mut App, key: KeyCode) {
             KeyCode::Down | KeyCode::Char('j') => {
                 nav_down(&mut app.setup_mode_idx, SETUP_MODES.len() - 1);
             }
-            KeyCode::Enter => app.screen = Screen::ExistingConfig,
+            KeyCode::Enter => {
+                // Derive autonomy from setup choice: idx 1 = YOLO, everything else = Supervised
+                app.autonomy_mode_idx = if app.setup_mode_idx == 1 { 1 } else { 0 };
+                app.screen = Screen::ExistingConfig;
+            }
             KeyCode::Esc => app.screen = Screen::SecurityWarning,
             _ => {}
         },
@@ -2203,13 +2232,9 @@ fn render_setup_mode(frame: &mut Frame, area: Rect, app: &App) {
     let items: Vec<SelectableItem> = SETUP_MODES
         .iter()
         .enumerate()
-        .map(|(i, mode)| SelectableItem {
-            label: mode.to_string(),
-            hint: match i {
-                0 => "recommended".to_string(),
-                1 => "advanced".to_string(),
-                _ => "skip".to_string(),
-            },
+        .map(|(i, (label, hint))| SelectableItem {
+            label: label.to_string(),
+            hint: hint.to_string(),
             is_active: i == app.setup_mode_idx,
             installed: false,
         })
@@ -2217,7 +2242,7 @@ fn render_setup_mode(frame: &mut Frame, area: Rect, app: &App) {
 
     frame.render_widget(
         SelectableList {
-            title: "Setup mode",
+            title: "Choose your setup",
             items: &items,
             selected: app.setup_mode_idx,
             scroll_offset: 0,
@@ -2401,7 +2426,7 @@ fn render_provider_tier(frame: &mut Frame, area: Rect, app: &App) {
     frame.render_widget(
         ConfirmedLine {
             label: "Setup mode",
-            value: SETUP_MODES[app.setup_mode_idx],
+            value: SETUP_MODES[app.setup_mode_idx].0,
         },
         layout[1],
     );
@@ -2443,7 +2468,7 @@ fn render_provider_select(frame: &mut Frame, area: Rect, app: &App) {
     frame.render_widget(
         ConfirmedLine {
             label: "Setup mode",
-            value: SETUP_MODES[app.setup_mode_idx],
+            value: SETUP_MODES[app.setup_mode_idx].0,
         },
         layout[1],
     );
@@ -2669,27 +2694,17 @@ fn render_channel_status(frame: &mut Frame, area: Rect) {
 
     let status_lines: Vec<Line> = vec![
         ("Telegram", "needs token", false),
+        ("WhatsApp", "not configured", false),
         ("Discord", "needs token", false),
         ("IRC", "needs host + nick", false),
         ("Slack", "needs tokens", false),
         ("Signal", "needs setup", false),
-        ("signal-cli", "missing (signal-cli)", false),
-        ("iMessage", "needs setup (imsg bridge)", false),
-        ("LINE", "needs token + secret", false),
+        ("iMessage", "needs setup", false),
         ("Mattermost", "needs token + url", false),
         ("Nextcloud Talk", "needs setup", false),
-        ("Feishu", "needs app credentials", false),
-        ("BlueBubbles", "needs setup", false),
-        ("Zalo", "needs token", false),
-        ("Synology Chat", "needs token + incoming webhook", false),
-        ("WhatsApp", "not configured", false),
-        ("Google Chat", "installed", true),
+        ("Feishu/Lark", "needs app credentials", false),
         ("Nostr", "installed", true),
-        ("Microsoft Teams", "installed", true),
         ("Matrix", "installed", true),
-        ("Zalo Personal", "installed", true),
-        ("Tlon", "installed", true),
-        ("Twitch", "installed", true),
     ]
     .into_iter()
     .map(|(name, status, ok)| {
@@ -4013,6 +4028,7 @@ mod tests {
             should_quit: false,
             security_accepted: true,
             setup_mode_idx: 0,
+            autonomy_mode_idx: 0,
             config_handling_idx: 0,
             provider_tier_idx: 0,
             provider_idx: 0,
@@ -4192,7 +4208,7 @@ mod tests {
     #[test]
     fn save_channel_slack() {
         let mut app = test_app();
-        app.channel_idx = 5; // Slack
+        app.channel_idx = 4; // Slack
         let mut config = Config::default();
         apply_tui_selections_to_config(&app, &mut config);
         let sl = config
@@ -4223,7 +4239,7 @@ mod tests {
     #[test]
     fn save_channel_signal() {
         let mut app = test_app();
-        app.channel_idx = 6; // Signal
+        app.channel_idx = 5; // Signal
         let mut config = Config::default();
         apply_tui_selections_to_config(&app, &mut config);
         let sig = config
@@ -4253,7 +4269,7 @@ mod tests {
     #[test]
     fn save_channel_imessage() {
         let mut app = test_app();
-        app.channel_idx = 7; // iMessage
+        app.channel_idx = 6; // iMessage
         let mut config = Config::default();
         apply_tui_selections_to_config(&app, &mut config);
         assert!(config.channels_config.imessage.is_some());
@@ -4278,7 +4294,7 @@ mod tests {
     #[test]
     fn save_channel_mattermost() {
         let mut app = test_app();
-        app.channel_idx = 9; // Mattermost
+        app.channel_idx = 7; // Mattermost
         let mut config = Config::default();
         apply_tui_selections_to_config(&app, &mut config);
         let mm = config

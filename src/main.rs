@@ -998,7 +998,9 @@ async fn main() -> Result<()> {
             ))
             .await
         } else if is_tty || env_interactive {
-            Box::pin(onboard::run_wizard(force)).await
+            // Default interactive path: TUI wizard
+            Box::pin(tui::run_tui_onboarding()).await?;
+            Box::pin(Config::load_or_init()).await
         } else {
             Box::pin(onboard::run_quick_setup(
                 api_key.as_deref(),
