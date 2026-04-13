@@ -226,39 +226,44 @@ libc = "0.2"
 
 [features]
 default = [
-    "agent-runtime",
-    "observability-prometheus",
+    "agent-core",
     "schema-export",
 ]
 
-# The full agent runtime — agent loop, channels, tools, gateway, TUI, all subsystems.
-# Without this, you get the kernel: config + providers + memory + CLI chat.
-agent-runtime = [
-    "dep:zeroclaw-runtime", "dep:zeroclaw-channels", "dep:zeroclaw-tools",
+# ── Tier 1: Agent core ────────────────────────────────────────────────
+# Agent loop + tools + runtime. No channels, no gateway, no TUI.
+# This is the new default — a lean, functional agent.
+agent-core = [
+    "dep:zeroclaw-runtime", "dep:zeroclaw-tools",
     "dep:rusqlite",
     "dep:ring", "dep:lru", "dep:chrono-tz", "dep:cron", "dep:glob", "dep:which",
-    "dep:ratatui", "dep:crossterm",
     "dep:tokio-tungstenite", "dep:tokio-socks", "dep:hostname",
     "dep:rustls", "dep:rustls-pemfile", "dep:rustls-pki-types", "dep:tokio-rustls", "dep:webpki-roots",
-    "dep:lettre", "dep:mail-parser", "dep:async-imap",
+]
+
+# ── Tier 2: Composable subsystems ─────────────────────────────────────
+gateway = ["agent-core", "dep:zeroclaw-gateway",
     "dep:axum", "dep:hyper", "dep:hyper-util", "dep:tower", "dep:tower-http", "dep:http-body-util",
-    "dep:mime_guess",
-    "gateway", "tui-onboarding",
-    "channel-email", "channel-telegram", "channel-lark",
+    "dep:mime_guess"]
+channels = ["agent-core", "dep:zeroclaw-channels",
     "channel-discord", "channel-slack", "channel-signal",
     "channel-mattermost", "channel-irc", "channel-imessage",
     "channel-dingtalk", "channel-qq", "channel-bluesky",
     "channel-twitter", "channel-reddit", "channel-notion",
     "channel-linq", "channel-wati", "channel-nextcloud",
     "channel-mochat", "channel-wecom", "channel-clawdtalk",
-    "channel-webhook", "channel-acp-server", "channel-whatsapp-cloud",
-    "channel-voice-call",
-]
-
-# Major subsystems — each forwards to exactly ONE crate
-gateway = ["dep:zeroclaw-gateway"]
-tui-onboarding = ["dep:zeroclaw-tui"]
+    "channel-webhook", "channel-whatsapp-cloud", "channel-voice-call"]
+tui-onboarding = ["dep:zeroclaw-tui", "dep:ratatui", "dep:crossterm"]
 schema-export = ["zeroclaw-config/schema-export"]
+
+# ── Tier 3: Full agent runtime (backward-compatible) ──────────────────
+# Everything: agent-core + gateway + channels + TUI + email/telegram/lark.
+agent-runtime = [
+    "agent-core", "gateway", "channels", "tui-onboarding",
+    "dep:lettre", "dep:mail-parser", "dep:async-imap",
+    "channel-email", "channel-telegram", "channel-lark",
+    "channel-acp-server",
+]
 
 # Channels — each forwards directly to zeroclaw-channels (1 hop)
 channel-email = ["zeroclaw-channels/channel-email"]
