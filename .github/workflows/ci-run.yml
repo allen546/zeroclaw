@@ -151,6 +151,15 @@ jobs:
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: clang
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS: "-C link-arg=-fuse-ld=mold"
 
+      - name: Check binary size
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          BIN="target/${{ matrix.target }}/ci/zeroclaw"
+          if [ -f "$BIN" ]; then
+            bash scripts/ci/check_binary_size.sh "$BIN" "${{ matrix.target }}"
+          fi
+
   check-all-features:
     name: Check (all features)
     runs-on: ubuntu-latest
