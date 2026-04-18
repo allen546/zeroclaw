@@ -13,7 +13,7 @@ on:
         default: false
         type: boolean
     secrets:
-      SCOOP_BUCKET_TOKEN:
+      RELEASE_APP_PRIVATE_KEY:
         required: false
   workflow_dispatch:
     inputs:
@@ -43,6 +43,14 @@ jobs:
       DRY_RUN: ${{ inputs.dry_run }}
       SCOOP_BUCKET_REPO: ${{ vars.SCOOP_BUCKET_REPO }}
     steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          owner: zeroclaw-labs
+
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -137,7 +145,7 @@ jobs:
         if: inputs.dry_run == false
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.SCOOP_BUCKET_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
           MANIFEST_FILE: ${{ steps.manifest.outputs.manifest_file }}
           VERSION: ${{ steps.meta.outputs.version }}
         run: |

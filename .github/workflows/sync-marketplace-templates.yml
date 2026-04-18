@@ -24,6 +24,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          owner: zeroclaw-labs
+          repositories: coolify
+
       - name: Derive version
         id: ver
         run: |
@@ -35,7 +44,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: zeroclaw-labs/coolify
-          token: ${{ secrets.MARKETPLACE_PAT }}
+          token: ${{ steps.app-token.outputs.token }}
           ref: next
           path: coolify
 
@@ -94,7 +103,7 @@ jobs:
       - name: Create PR
         working-directory: coolify
         env:
-          GH_TOKEN: ${{ secrets.MARKETPLACE_PAT }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
           VERSION: ${{ steps.ver.outputs.version }}
         run: |
           BRANCH="zeroclaw/update-v${VERSION}"
@@ -134,6 +143,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          owner: zeroclaw-labs
+          repositories: dokploy
+
       - name: Derive version
         id: ver
         run: |
@@ -145,7 +163,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: zeroclaw-labs/dokploy
-          token: ${{ secrets.MARKETPLACE_PAT }}
+          token: ${{ steps.app-token.outputs.token }}
           ref: main
           path: templates
 
@@ -242,7 +260,7 @@ jobs:
       - name: Create PR
         working-directory: templates
         env:
-          GH_TOKEN: ${{ secrets.MARKETPLACE_PAT }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
           VERSION: ${{ steps.ver.outputs.version }}
         run: |
           BRANCH="zeroclaw/update-v${VERSION}"
@@ -287,6 +305,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          owner: zeroclaw-labs
+          repositories: easypanel
+
       - name: Derive version
         id: ver
         run: |
@@ -298,7 +325,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: zeroclaw-labs/easypanel
-          token: ${{ secrets.MARKETPLACE_PAT }}
+          token: ${{ steps.app-token.outputs.token }}
           ref: main
           path: easypanel
 
@@ -475,7 +502,7 @@ jobs:
       - name: Create PR
         working-directory: easypanel
         env:
-          GH_TOKEN: ${{ secrets.MARKETPLACE_PAT }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
           VERSION: ${{ steps.ver.outputs.version }}
         run: |
           BRANCH="zeroclaw/update-v${VERSION}"

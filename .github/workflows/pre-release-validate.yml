@@ -18,10 +18,16 @@ jobs:
   validate-release-readiness:
     name: Validate Release Readiness
     runs-on: ubuntu-latest
-    env:
-      PAT: ${{ secrets.RELEASE_TOKEN }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          owner: zeroclaw-labs
 
       - name: Resolve version
         id: version
@@ -39,9 +45,7 @@ jobs:
       - name: Check required secrets exist
         shell: bash
         env:
-          CHECK_PAT: ${{ secrets.RELEASE_TOKEN }}
-          HOMEBREW_CORE_BOT_TOKEN: ${{ secrets.HOMEBREW_CORE_BOT_TOKEN }}
-          HOMEBREW_UPSTREAM_PR_TOKEN: ${{ secrets.HOMEBREW_UPSTREAM_PR_TOKEN }}
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
           AUR_SSH_KEY: ${{ secrets.AUR_SSH_KEY }}
           HOMEBREW_CORE_BOT_FORK_REPO: ${{ vars.HOMEBREW_CORE_BOT_FORK_REPO }}
         run: |
@@ -62,19 +66,8 @@ jobs:
           }
 
           echo "=== Required Secrets ==="
-          check_secret "PAT" "$CHECK_PAT"
+          check_secret "RELEASE_APP_PRIVATE_KEY (via app token)" "$APP_TOKEN"
           check_secret "AUR_SSH_KEY" "$AUR_SSH_KEY"
-
-          echo ""
-          echo "=== Homebrew Secrets (at least one required) ==="
-          if [[ -n "$HOMEBREW_UPSTREAM_PR_TOKEN" ]]; then
-            echo "OK: HOMEBREW_UPSTREAM_PR_TOKEN is configured"
-          elif [[ -n "$HOMEBREW_CORE_BOT_TOKEN" ]]; then
-            echo "OK: HOMEBREW_CORE_BOT_TOKEN is configured"
-          else
-            echo "::error::Neither HOMEBREW_UPSTREAM_PR_TOKEN nor HOMEBREW_CORE_BOT_TOKEN is set"
-            failed=1
-          fi
 
           echo ""
           echo "=== Repository Variables ==="
@@ -86,43 +79,28 @@ jobs:
             exit 1
           fi
 
-      - name: Check PAT access to downstream repos
-        if: env.PAT != ''
+      - name: Check App token access to downstream repos
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
-          WEBSITE_PAT: ${{ secrets.WEBSITE_REPO_PAT }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           failed=0
 
           check_repo_access() {
             local repo="$1"
             if gh api "repos/$repo" --jq '.permissions.push' 2>/dev/null | grep -q true; then
-              echo "OK: RELEASE_TOKEN has write access to $repo"
+              echo "OK: App token has write access to $repo"
             else
-              echo "::error::RELEASE_TOKEN cannot write to $repo"
+              echo "::error::App token cannot write to $repo"
               failed=1
             fi
           }
 
-          echo "=== Downstream Repository Access (RELEASE_TOKEN) ==="
+          echo "=== Downstream Repository Access ==="
           check_repo_access "zeroclaw-labs/dokploy"
           check_repo_access "zeroclaw-labs/easypanel"
           check_repo_access "zeroclaw-labs/coolify"
-
-          echo ""
-          echo "=== Website Access (WEBSITE_REPO_PAT) ==="
-          if [[ -n "$WEBSITE_PAT" ]]; then
-            if GH_TOKEN="$WEBSITE_PAT" gh api "repos/zeroclaw-labs/zeroclaw-website" --jq '.permissions.push' 2>/dev/null | grep -q true; then
-              echo "OK: WEBSITE_REPO_PAT has write access to zeroclaw-labs/zeroclaw-website"
-            else
-              echo "::error::WEBSITE_REPO_PAT cannot write to zeroclaw-labs/zeroclaw-website"
-              failed=1
-            fi
-          else
-            echo "::error::WEBSITE_REPO_PAT secret is missing"
-            failed=1
-          fi
+          check_repo_access "zeroclaw-labs/zeroclaw-website"
 
           echo ""
           echo "=== Homebrew Fork Access ==="
@@ -135,7 +113,7 @@ jobs:
 
           if [[ $failed -ne 0 ]]; then
             echo ""
-            echo "::error::One or more tokens lack required access. Check repo Settings > Secrets."
+            echo "::error::One or more tokens lack required access. Ensure the GitHub App is installed on all repos."
             exit 1
           fi
 
@@ -182,7 +160,7 @@ jobs:
             echo ""
             echo "| Check | Status |"
             echo "|---|---|"
-            echo "| Required secrets | Passed |"
+            echo "| GitHub App token | Passed |"
             echo "| Downstream repo access | Passed |"
             echo "| Version consistency | Passed |"
             echo ""
