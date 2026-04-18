@@ -387,8 +387,6 @@ jobs:
           owner: zeroclaw-labs
 
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          token: ${{ steps.app-token.outputs.token }}
 
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
@@ -471,14 +469,19 @@ jobs:
 
       - name: Remove CHANGELOG-next.md after stable release
         shell: bash
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          TAG: ${{ needs.validate.outputs.tag }}
         run: |
           if [ -f "CHANGELOG-next.md" ]; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git rm CHANGELOG-next.md
-            git commit -m "chore: remove CHANGELOG-next.md after ${{ needs.validate.outputs.tag }} release"
-            git push origin HEAD:master
-            echo "CHANGELOG-next.md removed and committed."
+            sha=$(gh api "repos/$GITHUB_REPOSITORY/contents/CHANGELOG-next.md" --jq '.sha')
+            gh api "repos/$GITHUB_REPOSITORY/contents/CHANGELOG-next.md" \
+              --method DELETE \
+              --field message="chore: remove CHANGELOG-next.md after $TAG release" \
+              --field branch=master \
+              --field sha="$sha" \
+              && echo "CHANGELOG-next.md removed." \
+              || echo "::warning::Could not remove CHANGELOG-next.md — clean up manually."
           else
             echo "No CHANGELOG-next.md to clean up."
           fi
@@ -502,8 +505,11 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           gh api repos/zeroclaw-labs/zeroclaw-website/dispatches \
+            --method POST \
             -f event_type=new-release \
-            -f 'client_payload[install_script_url]=https://raw.githubusercontent.com/zeroclaw-labs/zeroclaw/master/install.sh'
+            -f 'client_payload[install_script_url]=https://raw.githubusercontent.com/zeroclaw-labs/zeroclaw/master/install.sh' \
+            && echo "Website redeploy triggered." \
+            || echo "::warning::Could not trigger website redeploy. Ensure the GitHub App is installed on zeroclaw-website."
 
   docker:
     name: Push Docker Image

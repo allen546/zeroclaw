@@ -460,8 +460,11 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           gh api repos/zeroclaw-labs/zeroclaw-website/dispatches \
+            --method POST \
             -f event_type=new-release \
-            -f 'client_payload[install_script_url]=https://raw.githubusercontent.com/zeroclaw-labs/zeroclaw/master/install.sh'
+            -f 'client_payload[install_script_url]=https://raw.githubusercontent.com/zeroclaw-labs/zeroclaw/master/install.sh' \
+            && echo "Website redeploy triggered." \
+            || echo "::warning::Could not trigger website redeploy. Ensure the GitHub App is installed on zeroclaw-website."
 
   docker:
     name: Push Docker Image
