@@ -138,15 +138,15 @@ fn warn_metadata_drift(skill_dir: &Path, toml_skill: &Skill, md_path: &Path) {
     let parsed = parse_skill_markdown(&md_content);
     let dir_name = skill_dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
-    if let Some(ref md_name) = parsed.meta.name {
-        if md_name != &toml_skill.name {
-            tracing::warn!(
-                "skill '{}': name mismatch between TOML ('{}') and SKILL.md ('{}')",
-                dir_name,
-                toml_skill.name,
-                md_name,
-            );
-        }
+    if let Some(ref md_name) = parsed.meta.name
+        && md_name != &toml_skill.name
+    {
+        tracing::warn!(
+            "skill '{}': name mismatch between TOML ('{}') and SKILL.md ('{}')",
+            dir_name,
+            toml_skill.name,
+            md_name,
+        );
     }
     if let Some(ref md_desc) = parsed.meta.description {
         let md_desc = md_desc.trim();
