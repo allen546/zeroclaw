@@ -220,12 +220,17 @@ pub fn load_skills_from_directory(skills_dir: &Path, allow_scripts: bool) -> Vec
             }
         }
 
-        // Try SKILL.toml first, then SKILL.md
-        let manifest_path = path.join("SKILL.toml");
+        // Try SKILL.toml first, then manifest.toml (registry format), then SKILL.md
+        let skill_toml_path = path.join("SKILL.toml");
+        let manifest_toml_path = path.join("manifest.toml");
         let md_path = path.join("SKILL.md");
 
-        if manifest_path.exists() {
-            if let Ok(skill) = load_skill_toml(&manifest_path) {
+        if skill_toml_path.exists() {
+            if let Ok(skill) = load_skill_toml(&skill_toml_path) {
+                skills.push(skill);
+            }
+        } else if manifest_toml_path.exists() {
+            if let Ok(skill) = load_skill_toml(&manifest_toml_path) {
                 skills.push(skill);
             }
         } else if md_path.exists()
@@ -284,11 +289,16 @@ fn load_open_skills_from_directory(skills_dir: &Path, allow_scripts: bool) -> Ve
             }
         }
 
-        let manifest_path = path.join("SKILL.toml");
+        let skill_toml_path = path.join("SKILL.toml");
+        let manifest_toml_path = path.join("manifest.toml");
         let md_path = path.join("SKILL.md");
 
-        if manifest_path.exists() {
-            if let Ok(skill) = load_skill_toml(&manifest_path) {
+        if skill_toml_path.exists() {
+            if let Ok(skill) = load_skill_toml(&skill_toml_path) {
+                skills.push(finalize_open_skill(skill));
+            }
+        } else if manifest_toml_path.exists() {
+            if let Ok(skill) = load_skill_toml(&manifest_toml_path) {
                 skills.push(finalize_open_skill(skill));
             }
         } else if md_path.exists()
@@ -645,7 +655,34 @@ fn parse_skill_markdown(content: &str) -> ParsedSkillMarkdown {
 fn parse_simple_frontmatter(s: &str) -> SkillMarkdownMeta {
     let mut meta = SkillMarkdownMeta::default();
     let mut collecting_tags = false;
+    let mut collecting_multiline: Option<String> = None;
+    let mut multiline_parts: Vec<String> = Vec::new();
+
+    let flush_multiline =
+        |key: &str, parts: &[String], meta: &mut SkillMarkdownMeta| {
+            let joined = parts.join(" ");
+            let val = joined.trim();
+            if !val.is_empty() {
+                match key {
+                    "description" => meta.description = Some(val.to_string()),
+                    "name" => meta.name = Some(val.to_string()),
+                    _ => {}
+                }
+            }
+        };
+
     for line in s.lines() {
+        // Collect indented continuation lines for YAML block scalars (>- or |)
+        if let Some(ref key) = collecting_multiline {
+            if line.starts_with(' ') || line.starts_with('\t') {
+                multiline_parts.push(line.trim().to_string());
+                continue;
+            }
+            flush_multiline(key, &multiline_parts, &mut meta);
+            collecting_multiline = None;
+            multiline_parts.clear();
+        }
+
         // Handle YAML list items under `tags:` (e.g. "  - parser")
         if collecting_tags {
             let trimmed = line.trim();
@@ -664,6 +701,12 @@ fn parse_simple_frontmatter(s: &str) -> SkillMarkdownMeta {
         };
         let key = key.trim();
         let val = val.trim().trim_matches('"').trim_matches('\'');
+        // YAML block scalar indicators — collect continuation lines
+        if val == ">-" || val == ">" || val == "|" || val == "|-" {
+            collecting_multiline = Some(key.to_string());
+            multiline_parts.clear();
+            continue;
+        }
         match key {
             "name" => meta.name = Some(val.to_string()),
             "description" => meta.description = Some(val.to_string()),
@@ -685,6 +728,9 @@ fn parse_simple_frontmatter(s: &str) -> SkillMarkdownMeta {
             }
             _ => {}
         }
+    }
+    if let Some(ref key) = collecting_multiline {
+        flush_multiline(key, &multiline_parts, &mut meta);
     }
     meta
 }
@@ -1344,8 +1390,9 @@ pub fn install_clawhub_skill_source(
         std::io::copy(&mut entry, &mut out_file)?;
     }
 
-    let has_manifest =
-        installed_dir.join("SKILL.md").exists() || installed_dir.join("SKILL.toml").exists();
+    let has_manifest = installed_dir.join("SKILL.md").exists()
+        || installed_dir.join("SKILL.toml").exists()
+        || installed_dir.join("manifest.toml").exists();
     if !has_manifest {
         std::fs::write(
             installed_dir.join("SKILL.toml"),
