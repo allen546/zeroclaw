@@ -1,6 +1,7 @@
 use crate::security::SecurityPolicy;
 use async_trait::async_trait;
 use serde_json::json;
+use std::path::Path;
 use std::sync::Arc;
 use zeroclaw_api::tool::{Tool, ToolResult};
 
@@ -24,7 +25,7 @@ impl Tool for FileReadTool {
     }
 
     fn description(&self) -> &str {
-        "Read file contents with line numbers. Supports partial reading via offset and limit. Extracts text from PDF; other binary files are read with lossy UTF-8 conversion."
+        "Read file contents with line numbers. Supports partial reading via offset and limit. Extracts text from PDF (via pdf-extract) and from docx/xlsx/pptx/odt/ods/odp/epub/html/rtf (via pandoc). Other binary files are read with lossy UTF-8 conversion."
     }
 
     fn parameters_schema(&self) -> serde_json::Value {
@@ -204,6 +205,30 @@ impl Tool for FileReadTool {
                     });
                 }
 
+                // Try pandoc extraction for known document formats
+                if let Some(text) = try_extract_via_pandoc(&resolved_path).await {
+                    let lines: Vec<&str> = text.lines().collect();
+                    let total = lines.len();
+                    if total == 0 {
+                        return Ok(ToolResult {
+                            success: true,
+                            output: String::new(),
+                            error: None,
+                        });
+                    }
+                    let numbered: String = lines
+                        .iter()
+                        .enumerate()
+                        .map(|(i, line)| format!("{}: {}", i + 1, line))
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    return Ok(ToolResult {
+                        success: true,
+                        output: format!("{numbered}\n[{total} lines total]"),
+                        error: None,
+                    });
+                }
+
                 // Lossy fallback — replaces invalid bytes with U+FFFD
                 let lossy = String::from_utf8_lossy(&bytes).into_owned();
                 Ok(ToolResult {
@@ -231,6 +256,44 @@ fn try_extract_pdf_text(bytes: &[u8]) -> Option<String> {
 #[cfg(not(feature = "rag-pdf"))]
 fn try_extract_pdf_text(_bytes: &[u8]) -> Option<String> {
     None
+}
+
+/// Extensions for which pandoc can extract plain text.
+const PANDOC_EXTENSIONS: &[&str] = &[
+    "docx", "xlsx", "pptx", "odt", "ods", "odp", "epub", "html", "htm", "rtf",
+];
+
+/// Try to extract plain text from a document file using pandoc.
+///
+/// Returns `Some(text)` if the file extension is in the whitelist and pandoc
+/// succeeds. Returns `None` if the extension is not supported, pandoc is not
+/// installed, or conversion fails — allowing the caller to fall through to
+/// lossy UTF-8.
+async fn try_extract_via_pandoc(path: &Path) -> Option<String> {
+    let ext = path.extension()?.to_str()?.to_ascii_lowercase();
+    if !PANDOC_EXTENSIONS.contains(&ext.as_str()) {
+        return None;
+    }
+
+    let output = tokio::process::Command::new("pandoc")
+        .arg("-t")
+        .arg("plain")
+        .arg("--wrap=none")
+        .arg(path)
+        .output()
+        .await
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let text = String::from_utf8_lossy(&output.stdout).into_owned();
+    if text.trim().is_empty() {
+        return None;
+    }
+
+    Some(text)
 }
 
 #[cfg(test)]
