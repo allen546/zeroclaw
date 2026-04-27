@@ -8283,8 +8283,9 @@ mod tests {
     fn backend_key_from_choice_maps_supported_backends() {
         assert_eq!(backend_key_from_choice(0), "sqlite");
         assert_eq!(backend_key_from_choice(1), "lucid");
-        assert_eq!(backend_key_from_choice(2), "markdown");
-        assert_eq!(backend_key_from_choice(3), "none");
+        assert_eq!(backend_key_from_choice(2), "postgres");
+        assert_eq!(backend_key_from_choice(3), "markdown");
+        assert_eq!(backend_key_from_choice(4), "none");
         assert_eq!(backend_key_from_choice(999), "sqlite");
     }
 

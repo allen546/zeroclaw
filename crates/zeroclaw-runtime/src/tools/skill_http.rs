@@ -175,7 +175,7 @@ mod tests {
     #[test]
     fn skill_http_tool_name_is_prefixed() {
         let tool = SkillHttpTool::new("weather_skill", &sample_http_tool());
-        assert_eq!(tool.name(), "weather_skill.get_weather");
+        assert_eq!(tool.name(), "weather_skill__get_weather");
     }
 
     #[test]
@@ -205,7 +205,7 @@ mod tests {
     fn skill_http_tool_spec_roundtrip() {
         let tool = SkillHttpTool::new("weather_skill", &sample_http_tool());
         let spec = tool.spec();
-        assert_eq!(spec.name, "weather_skill.get_weather");
+        assert_eq!(spec.name, "weather_skill__get_weather");
         assert_eq!(spec.description, "Fetch weather for a city");
         assert_eq!(spec.parameters["type"], "object");
     }

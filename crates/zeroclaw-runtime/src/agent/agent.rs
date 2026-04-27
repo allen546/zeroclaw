@@ -2291,7 +2291,7 @@ mod tests {
         let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
         assert_eq!(
             names,
-            &["file_read", "web_fetch", "ops.deploy", "ops.rollback"]
+            &["file_read", "web_fetch", "ops__deploy", "ops__rollback"]
         );
     }
 }
