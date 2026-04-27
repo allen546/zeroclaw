@@ -1176,7 +1176,7 @@ mod tests {
                 mode: "announce".into(),
                 channel: Some("telegram".into()),
                 to: Some("123456".into()),
-                best_effort: false,
+                best_effort: true,
             }),
             false,
             None,
