@@ -25,11 +25,13 @@ pub struct SkillHttpTool {
 impl SkillHttpTool {
     /// Create a new skill HTTP tool.
     ///
-    /// The tool name is prefixed with the skill name (`skill_name.tool_name`)
-    /// to prevent collisions with built-in tools.
+    /// The tool name is prefixed with the skill name (`skill_name__tool_name`)
+    /// to prevent collisions with built-in tools. Uses double underscore as
+    /// separator to comply with OpenAI-compatible API tool name constraints
+    /// (`^[a-zA-Z0-9_-]+$`).
     pub fn new(skill_name: &str, tool: &crate::skills::SkillTool) -> Self {
         Self {
-            tool_name: format!("{}.{}", skill_name, tool.name),
+            tool_name: format!("{}__{}", skill_name, tool.name),
             tool_description: tool.description.clone(),
             url_template: tool.command.clone(),
             args: tool.args.clone(),
