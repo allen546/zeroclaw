@@ -9094,7 +9094,7 @@ BTC is currently around $65,000 based on latest tool output."#
         );
         // Registered tools (shell kind) appear under <callable_tools> with prefixed names
         assert!(prompt.contains("<callable_tools"));
-        assert!(prompt.contains("<name>code-review.lint</name>"));
+        assert!(prompt.contains("<name>code-review__lint</name>"));
         assert!(!prompt.contains("loaded on demand"));
     }
 
@@ -9143,7 +9143,7 @@ BTC is currently around $65,000 based on latest tool output."#
         // Compact mode should still include tools so the LLM knows about them.
         // Registered tools (shell kind) appear under <callable_tools> with prefixed names.
         assert!(prompt.contains("<callable_tools"));
-        assert!(prompt.contains("<name>code-review.lint</name>"));
+        assert!(prompt.contains("<name>code-review__lint</name>"));
     }
 
     #[test]
