@@ -11,6 +11,7 @@
 //! | Prefix | Purpose | Detection function |
 //! |---|---|---|
 //! | `assistant_resp` / `assistant_resp_*` | Model-authored assistant summaries (untrusted context) | [`is_assistant_autosave_key`] |
+//! | `tool_summary` / `tool_summary_*` | Synthetic per-turn tool usage summaries | [`is_tool_summary_autosave_key`] |
 //! | `user_msg` / `user_msg_*` | Raw per-turn user messages (consolidation queue) | [`is_user_autosave_key`] |
 //!
 //! Channel-scoped variants (e.g. `telegram_user_msg_*`, `discord_*`) are
@@ -163,6 +164,14 @@ pub fn effective_memory_backend_name(
 pub fn is_assistant_autosave_key(key: &str) -> bool {
     let normalized = key.trim().to_ascii_lowercase();
     normalized == "assistant_resp" || normalized.starts_with("assistant_resp_")
+}
+
+/// Auto-save key used for synthetic per-turn tool usage summaries.
+/// These entries are useful for explicit recall but should not be re-injected
+/// into automatic context assembly.
+pub fn is_tool_summary_autosave_key(key: &str) -> bool {
+    let normalized = key.trim().to_ascii_lowercase();
+    normalized == "tool_summary" || normalized.starts_with("tool_summary_")
 }
 
 /// Auto-save key used for raw user messages captured per-turn.
@@ -510,6 +519,15 @@ mod tests {
         assert!(is_assistant_autosave_key("ASSISTANT_RESP_abcd"));
         assert!(!is_assistant_autosave_key("assistant_response"));
         assert!(!is_assistant_autosave_key("user_msg_1234"));
+    }
+
+    #[test]
+    fn tool_summary_autosave_key_detection_matches_per_turn_patterns() {
+        assert!(is_tool_summary_autosave_key("tool_summary"));
+        assert!(is_tool_summary_autosave_key("tool_summary_1234"));
+        assert!(is_tool_summary_autosave_key("TOOL_SUMMARY_abcd"));
+        assert!(!is_tool_summary_autosave_key("tool_summaries"));
+        assert!(!is_tool_summary_autosave_key("assistant_resp_1234"));
     }
 
     #[test]
