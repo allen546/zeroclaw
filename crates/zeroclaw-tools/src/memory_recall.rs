@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use serde_json::json;
 use std::fmt::Write;
 use std::sync::Arc;
+use zeroclaw_api::memory_traits::MemoryCategory;
 use zeroclaw_api::tool::{Tool, ToolResult};
 use zeroclaw_memory::Memory;
 
@@ -50,6 +51,10 @@ impl Tool for MemoryRecallTool {
                     "type": "string",
                     "enum": ["bm25", "embedding", "hybrid"],
                     "description": "Search strategy: bm25 (keyword), embedding (semantic), or hybrid (both). Defaults to config value."
+                },
+                "category": {
+                    "type": "string",
+                    "description": "Optional memory category filter (e.g. core, daily, conversation, or a custom category name)"
                 }
             }
         })
@@ -59,13 +64,29 @@ impl Tool for MemoryRecallTool {
         let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("");
         let since = args.get("since").and_then(|v| v.as_str());
         let until = args.get("until").and_then(|v| v.as_str());
+        let category = match args.get("category").and_then(|v| v.as_str()) {
+            Some(raw) => {
+                let normalized = raw.trim().to_ascii_lowercase();
+                if normalized.is_empty() {
+                    None
+                } else {
+                    Some(match normalized.as_str() {
+                        "core" => MemoryCategory::Core,
+                        "daily" => MemoryCategory::Daily,
+                        "conversation" => MemoryCategory::Conversation,
+                        _ => MemoryCategory::Custom(raw.trim().to_string()),
+                    })
+                }
+            }
+            None => None,
+        };
 
-        if query.trim().is_empty() && since.is_none() && until.is_none() {
+        if query.trim().is_empty() && since.is_none() && until.is_none() && category.is_none() {
             return Ok(ToolResult {
                 success: false,
                 output: String::new(),
                 error: Some(
-                    "Provide at least 'query' (keywords) or time range ('since'/'until')".into(),
+                    "Provide at least 'query' (keywords), 'category', or time range ('since'/'until')".into(),
                 ),
             });
         }
@@ -113,7 +134,39 @@ impl Tool for MemoryRecallTool {
             .and_then(serde_json::Value::as_u64)
             .map_or(5, |v| v as usize);
 
-        match self.memory.recall(query, limit, None, since, until).await {
+        let entries_result = if query.trim().is_empty() {
+            self.memory
+                .list(category.as_ref(), None)
+                .await
+                .map(|mut entries| {
+                    if let Some(since) = since {
+                        entries.retain(|entry| entry.timestamp.as_str() >= since);
+                    }
+                    if let Some(until) = until {
+                        entries.retain(|entry| entry.timestamp.as_str() <= until);
+                    }
+                    entries.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+                    entries.truncate(limit);
+                    entries
+                })
+        } else {
+            self.memory
+                .recall(query, limit, None, since, until)
+                .await
+                .map(|entries| {
+                    if let Some(category) = category.as_ref() {
+                        entries
+                            .into_iter()
+                            .filter(|entry| &entry.category == category)
+                            .take(limit)
+                            .collect()
+                    } else {
+                        entries
+                    }
+                })
+        };
+
+        match entries_result {
             Ok(entries) if entries.is_empty() => Ok(ToolResult {
                 success: true,
                 output: "No memories found.".into(),
@@ -217,6 +270,56 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn recall_category_only_returns_matching_entries() {
+        let (_tmp, mem) = seeded_mem();
+        mem.store("lang", "User prefers Rust", MemoryCategory::Core, None)
+            .await
+            .unwrap();
+        mem.store(
+            "assistant_resp_1",
+            "Here is the previous assistant answer",
+            MemoryCategory::Conversation,
+            None,
+        )
+        .await
+        .unwrap();
+
+        let tool = MemoryRecallTool::new(mem);
+        let result = tool
+            .execute(json!({"category": "conversation", "limit": 10}))
+            .await
+            .unwrap();
+        assert!(result.success);
+        assert!(result.output.contains("assistant_resp_1"));
+        assert!(!result.output.contains("User prefers Rust"));
+    }
+
+    #[tokio::test]
+    async fn recall_query_and_category_filters_results() {
+        let (_tmp, mem) = seeded_mem();
+        mem.store("core_rust", "Rust preference", MemoryCategory::Core, None)
+            .await
+            .unwrap();
+        mem.store(
+            "conversation_rust",
+            "Discussed Rust migration",
+            MemoryCategory::Conversation,
+            None,
+        )
+        .await
+        .unwrap();
+
+        let tool = MemoryRecallTool::new(mem);
+        let result = tool
+            .execute(json!({"query": "Rust", "category": "conversation", "limit": 10}))
+            .await
+            .unwrap();
+        assert!(result.success);
+        assert!(result.output.contains("conversation_rust"));
+        assert!(!result.output.contains("core_rust"));
+    }
+
+    #[tokio::test]
     async fn recall_time_only_returns_entries() {
         let (_tmp, mem) = seeded_mem();
         mem.store("lang", "User prefers Rust", MemoryCategory::Core, None)
@@ -239,6 +342,7 @@ mod tests {
         let tool = MemoryRecallTool::new(mem);
         assert_eq!(tool.name(), "memory_recall");
         assert!(tool.parameters_schema()["properties"]["query"].is_object());
+        assert!(tool.parameters_schema()["properties"]["category"].is_object());
     }
 
     #[test]

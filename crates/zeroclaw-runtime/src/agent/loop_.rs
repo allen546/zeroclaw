@@ -319,6 +319,81 @@ fn autosave_memory_key(prefix: &str) -> String {
     format!("{prefix}_{}", Uuid::new_v4())
 }
 
+fn summarize_tool_arguments(arguments: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(arguments).ok()?;
+    let object = value.as_object()?;
+    let first_value = object.values().next()?;
+
+    let summary = match first_value {
+        serde_json::Value::String(s) => s.clone(),
+        other => other.to_string(),
+    };
+
+    let trimmed = summary.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(truncate_with_ellipsis(trimmed, 80))
+    }
+}
+
+fn summarize_current_turn_tools(history: &[ChatMessage]) -> Option<String> {
+    let last_user_idx = history.iter().rposition(|m| m.role == "user")?;
+    let tail = &history[last_user_idx + 1..];
+    if tail.is_empty() {
+        return None;
+    }
+
+    let end = if tail.last().is_some_and(|m| m.role == "assistant") {
+        tail.len().saturating_sub(1)
+    } else {
+        tail.len()
+    };
+
+    let mut tools = Vec::new();
+    for message in &tail[..end] {
+        if message.role != "assistant" {
+            continue;
+        }
+
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(&message.content)
+            && let Some(calls) = value.get("tool_calls").and_then(|calls| calls.as_array())
+        {
+            for call in calls {
+                let Some(name) = call.get("name").and_then(|v| v.as_str()) else {
+                    continue;
+                };
+                let detail = call
+                    .get("arguments")
+                    .and_then(|v| v.as_str())
+                    .and_then(summarize_tool_arguments);
+                let entry = match detail {
+                    Some(detail) => format!("{name}({detail})"),
+                    None => name.to_string(),
+                };
+                tools.push(truncate_with_ellipsis(&entry, 120));
+            }
+            continue;
+        }
+
+        let (_text, parsed_calls) = parse_tool_calls(&message.content);
+        for call in parsed_calls {
+            let detail = summarize_tool_arguments(&call.arguments.to_string());
+            let entry = match detail {
+                Some(detail) => format!("{}({detail})", call.name),
+                None => call.name,
+            };
+            tools.push(truncate_with_ellipsis(&entry, 120));
+        }
+    }
+
+    if tools.is_empty() {
+        None
+    } else {
+        Some(format!("Tools used: {}", tools.join(", ")))
+    }
+}
+
 /// Build context preamble by searching memory for relevant entries.
 /// Entries with a hybrid score below `min_relevance_score` are dropped to
 /// prevent unrelated memories from bleeding into the conversation.
@@ -348,6 +423,9 @@ async fn build_context(
             context.push_str("[Memory context]\n");
             for entry in &relevant {
                 if zeroclaw_memory::is_assistant_autosave_key(&entry.key) {
+                    continue;
+                }
+                if zeroclaw_memory::is_tool_summary_autosave_key(&entry.key) {
                     continue;
                 }
                 // Skip raw per-turn user messages: re-injecting them causes each
@@ -1768,7 +1846,7 @@ pub async fn run_tool_call_loop(
         for ((idx, call), outcome) in executable_indices
             .iter()
             .zip(executable_calls.iter())
-            .zip(executed_outcomes.into_iter())
+            .zip(executed_outcomes)
         {
             runtime_trace::record_event(
                 "tool_call_result",
@@ -2658,6 +2736,37 @@ pub async fn run(
                 }
             }
         }
+
+        if config.memory.auto_save
+            && response.chars().count() >= AUTOSAVE_MIN_MESSAGE_CHARS
+            && !zeroclaw_memory::should_skip_autosave_content(&response)
+        {
+            let assistant_key = autosave_memory_key("assistant_resp");
+            let _ = mem
+                .store(
+                    &assistant_key,
+                    &response,
+                    MemoryCategory::Conversation,
+                    memory_session_id.as_deref(),
+                )
+                .await;
+        }
+
+        if config.memory.auto_save
+            && let Some(tool_summary) = summarize_current_turn_tools(&history)
+            && tool_summary.chars().count() >= AUTOSAVE_MIN_MESSAGE_CHARS
+            && !zeroclaw_memory::should_skip_autosave_content(&tool_summary)
+        {
+            let tool_summary_key = autosave_memory_key("tool_summary");
+            let _ = mem
+                .store(
+                    &tool_summary_key,
+                    &tool_summary,
+                    MemoryCategory::Conversation,
+                    memory_session_id.as_deref(),
+                )
+                .await;
+        }
         final_output = response.clone();
         println!("{response}");
         observer.record_event(&ObserverEvent::TurnComplete);
@@ -2996,6 +3105,37 @@ pub async fn run(
             ctrlc_handle.abort();
             drop(delta_tx);
             let _ = consumer_handle.await;
+
+            if config.memory.auto_save
+                && response.chars().count() >= AUTOSAVE_MIN_MESSAGE_CHARS
+                && !zeroclaw_memory::should_skip_autosave_content(&response)
+            {
+                let assistant_key = autosave_memory_key("assistant_resp");
+                let _ = mem
+                    .store(
+                        &assistant_key,
+                        &response,
+                        MemoryCategory::Conversation,
+                        memory_session_id.as_deref(),
+                    )
+                    .await;
+            }
+
+            if config.memory.auto_save
+                && let Some(tool_summary) = summarize_current_turn_tools(&history)
+                && tool_summary.chars().count() >= AUTOSAVE_MIN_MESSAGE_CHARS
+                && !zeroclaw_memory::should_skip_autosave_content(&tool_summary)
+            {
+                let tool_summary_key = autosave_memory_key("tool_summary");
+                let _ = mem
+                    .store(
+                        &tool_summary_key,
+                        &tool_summary,
+                        MemoryCategory::Conversation,
+                        memory_session_id.as_deref(),
+                    )
+                    .await;
+            }
 
             final_output = response.clone();
             if content_was_streamed.load(std::sync::atomic::Ordering::Relaxed) {
