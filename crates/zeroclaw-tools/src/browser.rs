@@ -1777,9 +1777,17 @@ mod native_backend {
     if (isVisible(el)) {{
       describe(el, depth);
     }}
+    // Traverse light DOM
     for (const child of el.children) {{
       walk(child, depth + 1);
       if (nodes.length >= 400) return;
+    }}
+    // Traverse inside shadow roots (Web Components, Baidu search box, etc.)
+    if (el.shadowRoot) {{
+      for (const child of el.shadowRoot.children) {{
+        walk(child, depth + 1);
+        if (nodes.length >= 400) return;
+      }}
     }}
   }};
 
