@@ -40,12 +40,20 @@ impl HookHandler for CommandLoggerHook {
     }
 
     async fn on_after_tool_call(&self, tool: &str, result: &ToolResult, duration: Duration) {
+        let truncated_output = if result.output.len() > 200 {
+            format!("{}...", &result.output[..200])
+        } else {
+            result.output.clone()
+        };
+        let error_str = result.error.as_deref().unwrap_or("");
         let entry = format!(
-            "[{}] {} ({}ms) success={}",
+            "[{}] {} ({}ms) success={} output={:?} error={:?}",
             chrono::Utc::now().format("%H:%M:%S"),
             tool,
             duration.as_millis(),
             result.success,
+            truncated_output,
+            error_str,
         );
         tracing::info!(hook = "command-logger", "{}", entry);
         self.log.lock().unwrap().push(entry);

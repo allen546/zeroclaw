@@ -511,10 +511,24 @@ impl EmailChannel {
     fn create_smtp_transport(&self) -> Result<SmtpTransport> {
         let creds = Credentials::new(self.config.username.clone(), self.config.password.clone());
         let transport = if self.config.smtp_tls {
-            SmtpTransport::relay(&self.config.smtp_host)?
-                .port(self.config.smtp_port)
-                .credentials(creds)
-                .build()
+            if self.config.smtp_port == 465 {
+                // Implicit TLS (port 465) — wrap connection in TLS from the start
+                SmtpTransport::relay(&self.config.smtp_host)?
+                    .port(465)
+                    .credentials(creds)
+                    .tls(lettre::transport::smtp::client::Tls::Wrapper(
+                        lettre::transport::smtp::client::TlsParameters::new(
+                            self.config.smtp_host.clone(),
+                        )?,
+                    ))
+                    .build()
+            } else {
+                // STARTTLS (port 587) — upgrade plaintext to TLS
+                SmtpTransport::relay(&self.config.smtp_host)?
+                    .port(self.config.smtp_port)
+                    .credentials(creds)
+                    .build()
+            }
         } else {
             SmtpTransport::builder_dangerous(&self.config.smtp_host)
                 .port(self.config.smtp_port)

@@ -33,8 +33,12 @@ impl Observer for LogObserver {
                 let ms = u64::try_from(duration.as_millis()).unwrap_or(u64::MAX);
                 info!(provider = %provider, model = %model, duration_ms = ms, tokens = ?tokens_used, cost_usd = ?cost_usd, "agent.end");
             }
-            ObserverEvent::ToolCallStart { tool, .. } => {
-                info!(tool = %tool, "tool.start");
+            ObserverEvent::ToolCallStart { tool, arguments } => {
+                if let Some(args) = arguments {
+                    info!(tool = %tool, args = %args, "tool.start");
+                } else {
+                    info!(tool = %tool, "tool.start");
+                }
             }
             ObserverEvent::ToolCall {
                 tool,
