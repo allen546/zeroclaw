@@ -2808,14 +2808,30 @@ async fn process_channel_message(
     }
 
     // ── Reply-intent precheck ────────────────────────────────────────
-    // Skip the classifier for channels listed in skip_reply_precheck_channels
-    // (e.g. DM-only channels like "qq", "email") — every message gets a reply.
+    // Skip the classifier for channels matching skip_reply_precheck_channels.
+    // Supports three formats:
+    //   "qq"      — skip for all messages on this channel
+    //   "qq:dm"   — skip only for DMs (non-group conversations)
+    //   "qq:group"— skip only for group chats
     let skip_precheck = ctx
         .prompt_config
         .agent
         .skip_reply_precheck_channels
         .iter()
-        .any(|ch| ch.eq_ignore_ascii_case(&msg.channel));
+        .any(|entry| {
+            if let Some((ch, scope)) = entry.split_once(':') {
+                if !ch.eq_ignore_ascii_case(&msg.channel) {
+                    return false;
+                }
+                match scope.to_ascii_lowercase().as_str() {
+                    "dm" | "direct" => !is_group_chat,
+                    "group" => is_group_chat,
+                    _ => false,
+                }
+            } else {
+                entry.eq_ignore_ascii_case(&msg.channel)
+            }
+        });
 
     let reply_intent = if skip_precheck {
         AssistantChannelOutcome::Reply(String::new())
