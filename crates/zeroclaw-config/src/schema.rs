@@ -1506,6 +1506,14 @@ pub struct AgentConfig {
     /// behavior). Default: `2`.
     #[serde(default = "default_keep_tool_context_turns")]
     pub keep_tool_context_turns: usize,
+
+    /// Channels that skip the reply-intent classifier and always reply.
+    /// Useful for DM-only channels (e.g. `["qq", "email"]`) where every
+    /// inbound message should get a response. Group-chat channels benefit
+    /// from the classifier to avoid replying to messages not addressed to
+    /// the bot. Default: `[]` (all channels use the classifier).
+    #[serde(default)]
+    pub skip_reply_precheck_channels: Vec<String>,
 }
 
 fn default_max_tool_result_chars() -> usize {
@@ -1556,6 +1564,7 @@ impl Default for AgentConfig {
             context_compression: crate::scattered_types::ContextCompressionConfig::default(),
             max_tool_result_chars: default_max_tool_result_chars(),
             keep_tool_context_turns: default_keep_tool_context_turns(),
+            skip_reply_precheck_channels: Vec::new(),
         }
     }
 }

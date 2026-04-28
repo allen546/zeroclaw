@@ -2058,7 +2058,8 @@ async fn classify_channel_reply_intent(
     let response = provider
         .chat_with_system(Some(system_prompt), &convo, model, temperature)
         .await?;
-    let trimmed = response.trim();
+    let cleaned = strip_think_tags_inline(&response);
+    let trimmed = cleaned.trim();
     if trimmed.is_empty() {
         return Ok(AssistantChannelOutcome::NoReply { reason: None });
     }
@@ -2807,15 +2808,28 @@ async fn process_channel_message(
     }
 
     // ── Reply-intent precheck ────────────────────────────────────────
-    let reply_intent = classify_channel_reply_intent(
-        active_provider.as_ref(),
-        history[0].content.as_str(),
-        &history,
-        route.model.as_str(),
-        runtime_defaults.temperature,
-    )
-    .await
-    .unwrap_or(AssistantChannelOutcome::Reply(String::new()));
+    // Skip the classifier for channels listed in skip_reply_precheck_channels
+    // (e.g. DM-only channels like "qq", "email") — every message gets a reply.
+    let skip_precheck = ctx
+        .prompt_config
+        .agent
+        .skip_reply_precheck_channels
+        .iter()
+        .any(|ch| ch.eq_ignore_ascii_case(&msg.channel));
+
+    let reply_intent = if skip_precheck {
+        AssistantChannelOutcome::Reply(String::new())
+    } else {
+        classify_channel_reply_intent(
+            active_provider.as_ref(),
+            history[0].content.as_str(),
+            &history,
+            route.model.as_str(),
+            runtime_defaults.temperature,
+        )
+        .await
+        .unwrap_or(AssistantChannelOutcome::Reply(String::new()))
+    };
 
     if let AssistantChannelOutcome::NoReply { reason } = reply_intent {
         let history_response = AssistantChannelOutcome::NoReply {
